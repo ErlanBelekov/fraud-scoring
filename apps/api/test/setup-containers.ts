@@ -22,9 +22,10 @@ export async function startInfra(): Promise<TestInfra> {
   await runMigrations(pg);
   const rawRedis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
   // Wait for the client to be ready before proceeding (avoids race on container start).
-  // Ignore transient connection errors during startup; ioredis will reconnect automatically.
-  await new Promise<void>((resolve) => {
+  // Reject immediately on error so the test fails fast instead of hanging until timeout.
+  await new Promise<void>((resolve, reject) => {
     rawRedis.once('ready', resolve);
+    rawRedis.once('error', reject);
   });
   const redis = defineFraudCommands(rawRedis);
   return {
