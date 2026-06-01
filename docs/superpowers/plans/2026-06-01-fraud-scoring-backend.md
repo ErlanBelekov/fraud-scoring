@@ -10,18 +10,28 @@
 
 ---
 
+## Monorepo layout (npm workspaces)
+
+This repo is an npm-workspaces monorepo. **All backend paths in Tasks 1–14 are relative to `apps/api/`** (e.g. "Create `src/main.ts`" means `apps/api/src/main.ts`). Shared types live in `packages/shared`. The frontend (`apps/web`) is out of scope for this plan. Run backend commands from `apps/api/` unless noted; run `npm install` once from the repo root (workspaces hoist deps).
+
 ## File Structure
 
 ```
-fraud-scoring-backend/
-  docker-compose.yml                         # local postgres + redis
-  package.json
-  tsconfig.json
-  jest.config.js
-  test/setup-containers.ts                   # testcontainers boot helper (pg + redis)
-  db/migrations/001_create_transactions.sql  # schema
-  k6/score-load.js                           # 500 TPS load test
-  src/
+fraud-scoring-backend/                        # repo root (workspaces)
+  package.json                                # root: workspaces config
+  packages/shared/                            # shared DTO contract (FE + BE import)
+    package.json
+    src/index.ts                              # ScoreRequest, ScoreResponse, Decision
+  apps/web/                                    # frontend (out of scope for this plan)
+  apps/api/                                    # === all tasks below live here ===
+    docker-compose.yml                         # local postgres + redis
+    package.json
+    tsconfig.json
+    jest.config.js
+    test/setup-containers.ts                   # testcontainers boot helper (pg + redis)
+    db/migrations/001_create_transactions.sql  # schema
+    k6/score-load.js                           # 500 TPS load test
+    src/
     main.ts                                  # bootstrap + global ValidationPipe
     app.module.ts
     config/config.module.ts                  # env config
@@ -61,16 +71,95 @@ fraud-scoring-backend/
 
 ---
 
-## Task 0: Project scaffold
+## Task R: Monorepo root + shared package
 
-**Files:**
-- Create: `package.json`, `tsconfig.json`, `jest.config.js`, `docker-compose.yml`, `src/main.ts`, `src/app.module.ts`
+**Files (at repo root, NOT under apps/api):**
+- Create: `package.json` (root), `packages/shared/package.json`, `packages/shared/src/index.ts`
 
-- [ ] **Step 1: Create `package.json`**
+- [ ] **Step 1: Create the root workspace `package.json`**
 
 ```json
 {
-  "name": "fraud-scoring-backend",
+  "name": "fraud-scoring",
+  "private": true,
+  "workspaces": ["packages/*", "apps/*"]
+}
+```
+
+- [ ] **Step 2: Create the shared package manifest (`packages/shared/package.json`)**
+
+```json
+{
+  "name": "@fraud/shared",
+  "version": "0.1.0",
+  "main": "src/index.ts",
+  "types": "src/index.ts"
+}
+```
+
+- [ ] **Step 3: Create the shared DTO contract (`packages/shared/src/index.ts`)**
+
+```ts
+// The wire contract shared by the API and the frontend. Keep framework-free.
+export type Decision = 'approve' | 'review' | 'decline';
+
+export interface ScoreRequest {
+  transactionId: string;
+  cardToken: string;
+  customerId: string;
+  amount: number;
+  currency: string;
+  ip?: string;
+  country: string;
+  deviceFingerprint?: string;
+  createdAt: string; // ISO-8601
+}
+
+export interface ScoreResponse {
+  decision: Decision;
+  score: number;
+  triggeredRules: string[];
+  evaluatedAt: string; // ISO-8601
+}
+
+export interface TransactionListItem extends ScoreResponse {
+  id: string;
+  transactionId: string;
+  cardToken: string;
+  customerId: string;
+  amount: number;
+  currency: string;
+  ip: string | null;
+  country: string;
+  deviceFingerprint: string | null;
+  createdAt: string;
+}
+
+export interface TransactionListPage {
+  items: TransactionListItem[];
+  nextCursor: number | null;
+}
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add package.json packages/shared
+git commit -m "chore: monorepo root with shared dto contract"
+```
+
+---
+
+## Task 0: API project scaffold
+
+**Files (all under `apps/api/`):**
+- Create: `apps/api/package.json`, `apps/api/tsconfig.json`, `apps/api/jest.config.js`, `apps/api/docker-compose.yml`, `apps/api/src/main.ts`, `apps/api/src/app.module.ts`
+
+- [ ] **Step 1: Create `apps/api/package.json`**
+
+```json
+{
+  "name": "@fraud/api",
   "version": "0.1.0",
   "scripts": {
     "build": "nest build",
@@ -80,6 +169,7 @@ fraud-scoring-backend/
     "test:e2e": "jest --runInBand --config jest.config.js"
   },
   "dependencies": {
+    "@fraud/shared": "*",
     "@nestjs/common": "^10.4.0",
     "@nestjs/core": "^10.4.0",
     "@nestjs/platform-express": "^10.4.0",
@@ -115,7 +205,9 @@ fraud-scoring-backend/
     "module": "commonjs",
     "target": "ES2021",
     "outDir": "./dist",
-    "rootDir": "./",
+    "rootDir": "../../",
+    "baseUrl": ".",
+    "paths": { "@fraud/shared": ["../../packages/shared/src/index.ts"] },
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "esModuleInterop": true,
@@ -123,9 +215,11 @@ fraud-scoring-backend/
     "strict": true,
     "strictPropertyInitialization": false
   },
-  "include": ["src/**/*", "test/**/*"]
+  "include": ["src/**/*", "test/**/*", "../../packages/shared/src/**/*"]
 }
 ```
+
+The `paths` mapping + `include` let `tsc`, `ts-jest`, and Nest resolve `@fraud/shared` from TypeScript source (the shared package ships `.ts`, no build step).
 
 - [ ] **Step 3: Create `jest.config.js`**
 
@@ -181,10 +275,10 @@ import { Module } from '@nestjs/common';
 export class AppModule {}
 ```
 
-- [ ] **Step 7: Install and verify build**
+- [ ] **Step 7: Install (from repo root) and verify build**
 
-Run: `npm install && npx tsc --noEmit`
-Expected: no type errors.
+Run: `cd ../.. && npm install && cd apps/api && npx tsc --noEmit`
+Expected: no type errors. (Install runs once at the root; workspaces hoist and symlink `@fraud/shared`.)
 
 - [ ] **Step 8: Commit**
 
@@ -427,7 +521,8 @@ git commit -m "feat: add infra providers and testcontainers harness"
 - [ ] **Step 1: Create core types (`src/transactions/transaction.types.ts`)**
 
 ```ts
-export type Decision = 'approve' | 'review' | 'decline';
+import { Decision } from '@fraud/shared';
+export { Decision };
 
 export const SCORE_BY_DECISION: Record<Decision, number> = {
   decline: 0,
@@ -486,10 +581,12 @@ export interface StoredTransaction {
 
 ```ts
 import {
-  IsUUID, IsString, IsNumber, IsPositive, IsISO8601, IsOptional, IsIP, Length, Min,
+  IsUUID, IsString, IsNumber, IsISO8601, IsOptional, IsIP, Length, Min,
 } from 'class-validator';
+import { ScoreRequest } from '@fraud/shared';
 
-export class ScoreRequestDto {
+// implements ScoreRequest => compile error if the wire contract drifts.
+export class ScoreRequestDto implements ScoreRequest {
   @IsUUID()
   transactionId!: string;
 
@@ -526,15 +623,22 @@ export class ScoreRequestDto {
 - [ ] **Step 3: Create the output DTO (`src/transactions/dto/score-response.dto.ts`)**
 
 ```ts
-import { Decision } from '../transaction.types';
+import { ScoreResponse, Decision } from '@fraud/shared';
 
-export class ScoreResponseDto {
+export class ScoreResponseDto implements ScoreResponse {
   decision!: Decision;
   score!: number;
   triggeredRules!: string[];
   evaluatedAt!: string;
 }
 ```
+
+Keep the local `Decision` in `transaction.types.ts` re-exported from `@fraud/shared` to avoid two sources of truth:
+```ts
+// at the top of src/transactions/transaction.types.ts
+export { Decision } from '@fraud/shared';
+```
+(Remove the local `export type Decision = ...` line defined in Task 3 Step 1 and use this re-export instead.)
 
 - [ ] **Step 4: Create the listing query DTO (`src/transactions/dto/list-query.dto.ts`)**
 
