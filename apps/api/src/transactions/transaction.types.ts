@@ -1,5 +1,5 @@
-import { Decision } from '@fraud/shared';
-export { Decision };
+import type { Decision } from '@fraud/shared';
+export type { Decision };
 
 export const SCORE_BY_DECISION: Record<Decision, number> = {
   decline: 0,

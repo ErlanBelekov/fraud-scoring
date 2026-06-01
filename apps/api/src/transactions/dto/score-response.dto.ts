@@ -1,4 +1,4 @@
-import { ScoreResponse, Decision } from '@fraud/shared';
+import type { ScoreResponse, Decision } from '@fraud/shared';
 
 export class ScoreResponseDto implements ScoreResponse {
   decision!: Decision;

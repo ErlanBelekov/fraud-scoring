@@ -1,7 +1,7 @@
 import {
   IsUUID, IsString, IsNumber, IsISO8601, IsOptional, IsIP, Length, Min,
 } from 'class-validator';
-import { ScoreRequest } from '@fraud/shared';
+import type { ScoreRequest } from '@fraud/shared';
 
 // implements ScoreRequest => compile error if the wire contract drifts.
 export class ScoreRequestDto implements ScoreRequest {
